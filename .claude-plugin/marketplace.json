@@ -1,0 +1,11 @@
+{
+  "name": "claude-mods",
+  "owner": { "name": "none-ascetic" },
+  "plugins": [
+    {
+      "name": "house-rules",
+      "source": "./house-rules",
+      "description": "Quietly enforces Paddy's writing rules: no em dashes in chat, files or outbound messages, and a nudge when replies run long."
+    }
+  ]
+}

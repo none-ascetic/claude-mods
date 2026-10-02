@@ -1,0 +1,31 @@
+{
+  "name": "house-rules",
+  "version": "0.1.0",
+  "description": "Quietly enforces Paddy's writing rules: no em dashes in chat, files or outbound messages, and a nudge when replies run long.",
+  "userConfig": {
+    "lengthThreshold": {
+      "type": "number",
+      "title": "Length threshold",
+      "description": "Words of prose in one reply before Claude gets a quiet nudge to be shorter. Fenced code and tables do not count.",
+      "default": 300
+    },
+    "exemptPaths": {
+      "type": "string",
+      "title": "Exempt paths",
+      "description": "File globs where em dashes are allowed in written files, for example docs/quotes/*.md. Empty by default.",
+      "multiple": true,
+      "default": []
+    },
+    "outboundTools": {
+      "type": "string",
+      "title": "Outbound tools",
+      "description": "Tool-name patterns (* is a wildcard) treated as outbound. Em dashes in their text fields are swapped for a spaced hyphen. Leave empty to use the built-in list (Gmail, Slack, GitHub, Plain, ClickUp).",
+      "multiple": true,
+      "default": []
+    }
+  },
+  "author": {
+    "name": "none-ascetic"
+  },
+  "repository": "https://github.com/none-ascetic/claude-mods"
+}

@@ -6,6 +6,7 @@ import { readFileSync } from 'node:fs'
 
 const EM = String.fromCharCode(0x2014)
 const EN = String.fromCharCode(0x2013)
+const SPACED_EN = new RegExp(`\\s${EN}\\s`)
 const files = execFileSync('git', ['ls-files', '-z'], { encoding: 'utf8' }).split('\0').filter(Boolean)
 
 const bad = []
@@ -18,7 +19,7 @@ for (const file of files) {
   }
   if (text.includes('\0')) continue
   text.split('\n').forEach((line, i) => {
-    if (line.includes(EM) || new RegExp(`\\s${EN}\\s`).test(line)) bad.push(`${file}:${i + 1}: ${line.trim().slice(0, 80)}`)
+    if (line.includes(EM) || SPACED_EN.test(line)) bad.push(`${file}:${i + 1}: ${line.trim().slice(0, 80)}`)
   })
 }
 

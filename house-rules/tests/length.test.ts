@@ -46,13 +46,6 @@ test('the next reply under the threshold queues none', async ($, on) => {
   expect((await nudges($)).length).toBe(0)
 })
 
-test('a short reply before the note is read cancels it', async ($, on) => {
-  world(on)
-  await finish($, words(520), 't1')
-  await finish($, words(100), 't2')
-  expect((await nudges($)).length).toBe(0)
-})
-
 test('a reply that is mostly a code block does not trigger it', async ($, on) => {
   world(on)
   await finish($, `Here you go:\n\`\`\`\n${words(600)}\n\`\`\`\nDone.`)

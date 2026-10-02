@@ -10,6 +10,9 @@ type Fence = { char: string; length: number }
 const fenceMarker = (run: string): Fence | null =>
   run.length >= 3 ? { char: run.charAt(0), length: run.length } : null
 
+const closesFence = (open: Fence, marker: Fence) =>
+  marker.char === open.char && marker.length >= open.length
+
 const isBlank = (c: string) => c !== '\n' && c !== '\r' && /\s/.test(c)
 
 /**
@@ -53,13 +56,7 @@ export class DashSwapper {
       const wasSpaced = this.pendingEn && this.pendingWs !== ''
       if (wasSpaced) this.pendingEn = false
       const out = (wasSpaced ? this.emitDash() : '') + this.flush() + c
-      if (c === '\n') {
-        this.endOfLine()
-        this.fenceLine = false
-        this.run = ''
-        this.runOpen = true
-        this.lineHasContent = false
-      }
+      if (c === '\n') this.startLine()
       return out
     }
     if (isBlank(c)) {
@@ -122,6 +119,14 @@ export class DashSwapper {
     this.endOfLine()
   }
 
+  private startLine() {
+    this.endOfLine()
+    this.fenceLine = false
+    this.run = ''
+    this.runOpen = true
+    this.lineHasContent = false
+  }
+
   private endOfLine() {
     if (!this.runOpen) return
     this.runOpen = false
@@ -130,7 +135,7 @@ export class DashSwapper {
     if (this.fence === null) {
       this.fence = marker
       this.fenceLine = true
-    } else if (marker.char === this.fence.char && marker.length >= this.fence.length) {
+    } else if (closesFence(this.fence, marker)) {
       this.fence = null
       this.fenceLine = true
     }
@@ -162,7 +167,10 @@ const DASH = new RegExp(`${EM}|(?<=\\s)${EN}(?=\\s)`, 'g')
 
 const dashesIn = (line: string) => line.match(DASH)?.length ?? 0
 
-export type DashLine = { line: number; text: string }
+/** The cheap check before any file is read: no dash character at all means nothing to guard. */
+export const mayHaveDash = (text: string): boolean => text.includes(EM) || text.includes(EN)
+
+type DashLine = { line: number; text: string }
 
 /**
  * The em dashes `newText` adds on top of `oldText`: how many, and which
@@ -218,9 +226,12 @@ const globToRegExp = (glob: string, isSingleSegment: boolean) => {
   return re
 }
 
-/** True when `path` matches any exempt glob (`docs/quotes/*.md` matches anywhere in the path). */
-export const isExemptPath = (path: string, globs: readonly string[]): boolean =>
-  globs.some(g => new RegExp(`(^|/)${globToRegExp(g.replace(/^\.?\//, ''), true)}$`).test(path))
+/** Compiles exempt globs once; `docs/quotes/*.md` matches anywhere in a path. */
+export const exemptMatcher = (globs: readonly string[]): ((path: string) => boolean) => {
+  if (globs.length === 0) return () => false
+  const re = new RegExp(`(^|/)(?:${globs.map(g => globToRegExp(g.replace(/^\.?\//, ''), true)).join('|')})$`)
+  return path => re.test(path)
+}
 
 // ------------------------------------------------------------- outbound
 
@@ -278,7 +289,7 @@ export const proseWords = (text: string): number => {
     const marker = fenceMarker(/^(`+|~+)/.exec(t)?.[0] ?? '')
     if (marker !== null) {
       if (fence === null) fence = marker
-      else if (marker.char === fence.char && marker.length >= fence.length) fence = null
+      else if (closesFence(fence, marker)) fence = null
       continue
     }
     if (fence !== null || t.startsWith('|')) continue

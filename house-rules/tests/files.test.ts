@@ -1,12 +1,13 @@
 import { test, expect } from 'claude-code/testing'
 
 const EM = '\u2014'
+const EN = '\u2013'
+
+const denial = (r: any): string | undefined => r.deny ?? (r.isError ? r.text : undefined)
 
 // The file system and the tool beneath the plugin: `existing` is what the
 // file holds now (undefined: it does not exist); `ran` collects the calls
 // that got through to the tool.
-const denial = (r: any): string | undefined => r.deny ?? (r.isError ? r.text : undefined)
-
 const world = (on: any, existing: string | undefined) => {
   const ran: any[] = []
   on('fs.read', () => {
@@ -104,10 +105,10 @@ test('a spaced en dash counts, an unspaced one does not', async ($, on) => {
   const blocked: any = await $.tool.call({
     tool: 'Write',
     file_path: '/repo/a.md',
-    content: 'one \u2013 two\n',
+    content: `one ${EN} two\n`,
   })
   expect(denial(blocked)).toBeDefined()
-  await $.tool.call({ tool: 'Write', file_path: '/repo/b.md', content: '2\u20133 days\n' })
+  await $.tool.call({ tool: 'Write', file_path: '/repo/b.md', content: `2${EN}3 days\n` })
   expect(ran.length).toBe(1)
 })
 

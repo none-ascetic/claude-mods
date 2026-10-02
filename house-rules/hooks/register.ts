@@ -3,7 +3,8 @@ import {
   DEFAULT_OUTBOUND_TOOLS,
   DashSwapper,
   addedDashes,
-  isExemptPath,
+  exemptMatcher,
+  mayHaveDash,
   notebookCellSource,
   outboundMatcher,
   proseWords,
@@ -20,7 +21,7 @@ export const register: Register = (on, options) => {
     typeof options.lengthThreshold === 'number' && options.lengthThreshold > 0
       ? options.lengthThreshold
       : 300
-  const exemptPaths = list(options.exemptPaths)
+  const isExempt = exemptMatcher(list(options.exemptPaths))
   const outbound = list(options.outboundTools)
   const outboundTools = outboundMatcher(outbound.length > 0 ? outbound : DEFAULT_OUTBOUND_TOOLS)
 
@@ -56,40 +57,27 @@ export const register: Register = (on, options) => {
 
   // Files: block writes that add em dashes; Claude repunctuates.
   const guard = (path: string, oldText: string, newText: string, firstLine = 1) => {
-    if (isExemptPath(path, exemptPaths)) return undefined
+    if (isExempt(path)) return undefined
     const { count, lines } = addedDashes(oldText, newText, firstLine)
-    if (count === 0 || lines.length === 0) return undefined
+    if (count === 0) return undefined
     return { deny: repunctuateMessage(count, lines) }
   }
 
   on('tool.call', { tool: 'Write' }, async ($, e, next) => {
-    let file = ''
-    try {
-      file = await $.fs.read(e.file_path)
-    } catch {
-      // A new file has nothing to compare against.
-    }
+    if (!mayHaveDash(e.content)) return next(e)
+    const file = await $.fs.read(e.file_path).catch(() => '')
     return guard(e.file_path, file, e.content) ?? next(e)
   })
   on('tool.call', { tool: 'Edit' }, async ($, e, next) => {
-    let file = ''
-    try {
-      file = await $.fs.read(e.file_path)
-    } catch {
-      // Line numbers fall back to the edit's own text.
-    }
+    if (!mayHaveDash(e.new_string)) return next(e)
+    const file = await $.fs.read(e.file_path).catch(() => '')
     const at = file.indexOf(e.old_string)
     const firstLine = at < 0 ? 1 : file.slice(0, at).split('\n').length
     return guard(e.file_path, e.old_string, e.new_string, firstLine) ?? next(e)
   })
   on('tool.call', { tool: 'NotebookEdit' }, async ($, e, next) => {
-    if (e.edit_mode === 'delete') return next(e)
-    let notebook = ''
-    try {
-      notebook = await $.fs.read(e.notebook_path)
-    } catch {
-      // No notebook to compare with: the whole cell counts as new.
-    }
+    if (e.edit_mode === 'delete' || !mayHaveDash(e.new_source)) return next(e)
+    const notebook = await $.fs.read(e.notebook_path).catch(() => '')
     const before = e.edit_mode === 'insert' ? '' : notebookCellSource(notebook, e.cell_id)
     return guard(e.notebook_path, before, e.new_source) ?? next(e)
   })

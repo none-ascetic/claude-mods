@@ -21,5 +21,8 @@ jobs:
         run: |
           claude plugin validate .
           claude plugin validate ./house-rules
+          claude plugin validate ./identity-guard
       - name: Plugin tests
-        run: claude plugin test ./house-rules
+        run: |
+          claude plugin test ./house-rules
+          claude plugin test ./identity-guard

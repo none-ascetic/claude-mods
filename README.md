@@ -5,6 +5,7 @@ Small add-ons ("mods") for Claude Code, kept in one place so every session can u
 | Mod | What it does |
 | --- | --- |
 | [`house-rules`](./house-rules) | Enforces Paddy's writing rules: no em dashes, and short replies. |
+| [`identity-guard`](./identity-guard) | Stops commits and pushes under the wrong git identity before they reach GitHub. |
 
 ## House Rules
 
@@ -101,3 +102,88 @@ node scripts/check-no-em-dashes.mjs     # the repo itself must contain no litera
 ```
 
 Tests build their dashes from escape codes so the repo stays clean. The streaming swap, the file guard, the outbound swap and the length note are each covered in `house-rules/tests/`.
+
+## Identity Guard
+
+Vercel rejects builds when a commit is authored under the work email, and the error it gives does not say why. This mod catches a wrong identity before it reaches GitHub, and tells Claude exactly how to fix it.
+
+### What it does
+
+**The law: every commit created or pushed from a Claude Code session has an author and a committer that are each on the allow-list.** Anything else is blocked: the work email, a typo, an unknown address, an empty identity.
+
+| Allowed identity | Where it is normal |
+| --- | --- |
+| `Paddy Davies <paddy.davies@me.com>` | Paddy's own machine (desktop app Code tab) |
+| `Claude <noreply@anthropic.com>` | Claude Code cloud sessions. The container requires it, and commits under it deploy fine on Vercel. |
+
+Email is compared in any case, the name exactly. A mix (author Paddy, committer Claude) is fine.
+
+| Where | What happens |
+| --- | --- |
+| **Commit check** (`commit`, `merge`, `rebase`, `cherry-pick`, `revert`, `am`, `pull`) | Reads the identity git would use, plus any override written in the command (`-c user.email=`, `--author=`, `GIT_AUTHOR_EMAIL=` and friends). A breach is blocked with the identity found, the allow-list and the exact fix. A pop-up appears. |
+| **Push check** (`git push`) | Lists the commits about to leave (on the pushed branch, not on any remote). If any is off the list, the push is blocked, each offender is listed by short SHA, and the fix is given. A pop-up appears. |
+| **Band** | One red line above the prompt while the current repo's identity is off the list. Nothing when it is fine, or when the folder is not a git repo. |
+
+The commit check reads the words of the command, so it is a safety net. The push check reads what git actually recorded, so it catches anything that got past (scripts, aliases, `cd` tricks).
+
+What "right" looks like:
+
+- Claude runs `git -c user.email="paddy@dines.co.uk" commit -m "..."`. It is blocked with "Drop the override from the command". Claude drops it and the commit goes through.
+- A repo is set to the work email. If the global identity is on the list, the fix is to remove the repo's own setting (`git config --unset user.name; git config --unset user.email`), so commits fall back to Claude in the cloud or Paddy on the laptop. Otherwise the fix is to set the repo to Paddy.
+- A push carries an unpushed work-email commit. The fix is to correct the identity, then re-stamp only the unpushed commits: `git rebase --exec 'git commit --amend --no-edit --reset-author' <oldest unpushed commit>^`. History already on GitHub is never rewritten.
+- A cloud session at its default identity, or a laptop repo set to Paddy: nothing appears and commits go straight through.
+
+The guard never tells anyone to move off `Claude <noreply@anthropic.com>` when that is the global identity, because the cloud container's end-of-turn check requires it.
+
+### How to install it
+
+In Claude Code (desktop app or terminal):
+
+```
+/plugin marketplace add none-ascetic/claude-mods
+/plugin install identity-guard@claude-mods
+```
+
+Mods need Claude Code 2.1.287 or newer.
+
+### How to switch it on for a repo's cloud sessions
+
+Add this to the repo's `.claude/settings.json` (create the file if there is not one), commit it, and cloud sessions on that repo load the mod:
+
+```json
+{
+  "extraKnownMarketplaces": {
+    "claude-mods": { "source": { "source": "github", "repo": "none-ascetic/claude-mods" } }
+  },
+  "enabledPlugins": { "identity-guard@claude-mods": true }
+}
+```
+
+This is the standard way to switch a plugin on per repo. It is confirmed for real in the inni pilot (ticket #3); until then treat it as the expected route.
+
+### How to change the allow-list
+
+Change it with `claude plugin configure identity-guard`, or in the plugin's settings row inside Claude Code.
+
+| Setting | Default | What it does |
+| --- | --- | --- |
+| `allowList` | `Paddy Davies <paddy.davies@me.com>`, `Claude <noreply@anthropic.com>` | The identities allowed to author and commit, each written `Name <email>`. An empty list falls back to the default. |
+
+The setting is also the escape hatch: add an identity to let it through. There is no separate off switch.
+
+### What it does not do
+
+- It does not check commits Paddy makes by hand outside Claude Code.
+- It does not check commits GitHub makes itself (web edits, the API, the GitHub tools that write files).
+- It is not server-side enforcement, and it does not sign commits (the cloud container already does).
+- It cannot see an identity set by a git alias or a script before the push. The push check catches those.
+
+### For developers
+
+```
+claude plugin validate ./identity-guard
+claude plugin test ./identity-guard
+tsc -p identity-guard
+```
+
+Plugin tests have no real processes, so `identity-guard/tests/support.ts` is a small pretend git that answers only the calls the mod makes (`var`, `config --global --get`, `rev-parse`, `log`). It was checked against real git. For `tsc`, copy the types the engine writes when the mod loads into `identity-guard/.claude-plugin/types/` (gitignored).

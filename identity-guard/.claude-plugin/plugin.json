@@ -1,0 +1,22 @@
+{
+  "name": "identity-guard",
+  "version": "0.1.0",
+  "description": "Stops commits and pushes under the wrong git identity (the work email) before they reach GitHub, and says exactly how to fix it.",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "allowList": {
+      "type": "string",
+      "title": "Allowed identities",
+      "description": "Git identities allowed to author and commit, each written Name <email>. Email is compared in any case, name exactly. Leave empty to use the default (Paddy Davies and Claude).",
+      "multiple": true,
+      "default": [
+        "Paddy Davies <paddy.davies@me.com>",
+        "Claude <noreply@anthropic.com>"
+      ]
+    }
+  },
+  "author": {
+    "name": "none-ascetic"
+  },
+  "repository": "https://github.com/none-ascetic/claude-mods"
+}

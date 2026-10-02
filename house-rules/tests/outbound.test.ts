@@ -1,6 +1,6 @@
 import { test, expect } from 'claude-code/testing'
 
-const EM = '—'
+const EM = '\u2014'
 
 // The tool beneath the plugin; `seen` is what arrived downstream.
 const world = (on: any) => {

@@ -1,8 +1,8 @@
 // Pure rules for the House Rules mod: no engine calls in here, so the
 // hooks in register.ts stay thin and every rule is easy to read.
 
-const EM = '—'
-const EN = '–'
+const EM = '\u2014'
+const EN = '\u2013'
 
 const isBlank = (c: string) => c !== '\n' && c !== '\r' && /\s/.test(c)
 

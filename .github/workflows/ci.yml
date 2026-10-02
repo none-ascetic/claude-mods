@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: No literal em dashes anywhere in the repo
+        run: node scripts/check-no-em-dashes.mjs
+      - name: Manifests are valid JSON
+        run: |
+          node -e "for (const f of ['.claude-plugin/marketplace.json','house-rules/.claude-plugin/plugin.json','house-rules/hooks/hooks.json']) JSON.parse(require('fs').readFileSync(f,'utf8'))"
+      - name: Install Claude Code
+        run: npm install -g @anthropic-ai/claude-code@2.1.287
+      - name: Validate marketplace and plugin
+        run: |
+          claude plugin validate .
+          claude plugin validate ./house-rules
+      - name: Plugin tests
+        run: claude plugin test ./house-rules

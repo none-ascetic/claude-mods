@@ -1,7 +1,7 @@
 import { test, expect } from 'claude-code/testing'
 
-const EM = '—'
-const EN = '–'
+const EM = '\u2014'
+const EN = '\u2013'
 const STEP = { turnId: 't1', index: 0, model: 'm', messageCount: 1 }
 
 // Streams the given pieces as one text block, as the model would, and
@@ -65,4 +65,20 @@ test('a fence split across chunks still protects its contents', async ($, on) =>
 
 test('text with no dashes streams through unchanged, trailing space kept', async ($, on) => {
   expect(await shown($, on, ['hello ', 'there ', 'friend '])).toBe('hello there friend ')
+})
+
+test('a dash at the end of a line keeps the line break and adds no trailing space', async ($, on) => {
+  expect(await shown($, on, [`first ${EM}\nsecond`])).toBe('first -\nsecond')
+})
+
+test('two dashes in a row collapse to one hyphen', async ($, on) => {
+  expect(await shown($, on, [`wait${EM}${EM}what`])).toBe('wait - what')
+})
+
+test('a dash at the start of a line keeps its indentation', async ($, on) => {
+  expect(await shown($, on, [`  ${EM} aside`])).toBe('  - aside')
+})
+
+test('an en dash with space on one side only is left alone', async ($, on) => {
+  expect(await shown($, on, [`a ${EN}b and c${EN} d`])).toBe(`a ${EN}b and c${EN} d`)
 })

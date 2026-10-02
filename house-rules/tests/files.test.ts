@@ -1,6 +1,6 @@
 import { test, expect } from 'claude-code/testing'
 
-const EM = '—'
+const EM = '\u2014'
 
 // The file system and the tool beneath the plugin: `existing` is what the
 // file holds now (undefined: it does not exist); `ran` collects the calls
@@ -104,10 +104,10 @@ test('a spaced en dash counts, an unspaced one does not', async ($, on) => {
   const blocked: any = await $.tool.call({
     tool: 'Write',
     file_path: '/repo/a.md',
-    content: 'one – two\n',
+    content: 'one \u2013 two\n',
   })
   expect(denial(blocked)).toBeDefined()
-  await $.tool.call({ tool: 'Write', file_path: '/repo/b.md', content: '2–3 days\n' })
+  await $.tool.call({ tool: 'Write', file_path: '/repo/b.md', content: '2\u20133 days\n' })
   expect(ran.length).toBe(1)
 })
 
@@ -136,4 +136,33 @@ test('an exempt path is allowed, others still blocked', { options: { exemptPaths
     content: `quote ${EM} source\n`,
   })
   expect(denial(r)).toBeDefined()
+})
+
+test('Edit reports the line in the file, not in the snippet', async ($, on) => {
+  world(on, 'one\ntwo\nthree\nfour\n')
+  const r: any = await $.tool.call({
+    tool: 'Edit',
+    file_path: '/repo/a.md',
+    old_string: 'three',
+    new_string: `three ${EM} and a bit`,
+  })
+  expect(denial(r)).toContain('line 3')
+})
+
+test('Write that moves an existing dash line elsewhere adds none', async ($, on) => {
+  const ran = world(on, `a ${EM} b\nplain\n`)
+  await $.tool.call({ tool: 'Write', file_path: '/repo/a.md', content: `plain\na ${EM} b\n` })
+  expect(ran.length).toBe(1)
+})
+
+test('Write of several dashes counts them all', async ($, on) => {
+  world(on, undefined)
+  const r: any = await $.tool.call({
+    tool: 'Write',
+    file_path: '/repo/a.md',
+    content: `a ${EM} b\nc ${EM} d\n`,
+  })
+  expect(denial(r)).toContain('2 em dashes')
+  expect(denial(r)).toContain('line 1')
+  expect(denial(r)).toContain('line 2')
 })

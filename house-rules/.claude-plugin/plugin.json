@@ -23,5 +23,9 @@
       "multiple": true,
       "default": []
     }
-  }
+  },
+  "author": {
+    "name": "none-ascetic"
+  },
+  "repository": "https://github.com/none-ascetic/claude-mods"
 }

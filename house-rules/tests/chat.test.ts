@@ -46,9 +46,15 @@ test('em dash inside a fenced code block is left alone', async ($, on) => {
   )
 })
 
-test('em dash split across stream chunks is still swapped', async ($, on) => {
+test('em dash split into its own chunk, spaces either side, is swapped', async ($, on) => {
   expect(await shown($, on, ['simple ', EM, ' drop it'])).toBe('simple - drop it')
+})
+
+test('em dash split into its own chunk, no spaces, is swapped', async ($, on) => {
   expect(await shown($, on, ['simple', EM, 'drop it'])).toBe('simple - drop it')
+})
+
+test('spaced en dash split across chunks is swapped', async ($, on) => {
   expect(await shown($, on, ['simple ', EN, ' drop it'])).toBe('simple - drop it')
 })
 

@@ -31,14 +31,13 @@ export const checkPush = async (run: Run, call: GitCall, allowList: readonly Ide
   if (refs === null) return null
   const unpushed = await unpushedCommits(run, call.prefix, refs)
   const bad = unpushed.filter(c => !isAllowed(c.author, allowList) || !isAllowed(c.committer, allowList))
-  const oldest = unpushed[unpushed.length - 1]
-  if (bad.length === 0 || oldest === undefined) return null
+  if (bad.length === 0) return null
 
   const current = await baselineIdentity(run, call.prefix)
   const isCurrentAllowed = isIdentityAllowed(current, allowList)
   const isGlobalOk = isCurrentAllowed || (await isGlobalAllowed(run, allowList))
   return {
-    deny: pushMessage({ bad, oldest, total: unpushed.length, allowList, isIdentityAllowed: isCurrentAllowed, isGlobalAllowed: isGlobalOk }),
+    deny: pushMessage({ unpushed, bad, allowList, isIdentityAllowed: isCurrentAllowed, isGlobalAllowed: isGlobalOk }),
     toast: `Identity guard: push blocked, ${bad.length} unpushed commit${bad.length === 1 ? '' : 's'} off the allow-list`,
   }
 }

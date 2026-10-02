@@ -32,22 +32,50 @@ export const showList = (allowList: readonly Ident[]): string => allowList.map(s
 
 // ---- reading a shell command -------------------------------------------------
 
-const OPERATORS = ['&&', '||', ';', '|', '&', '\n']
+const OPERATORS = ['&&', '||', ';', '|', '&', '\n', '(', ')']
+const SEPARATOR_MARKS = ['(', ')']
 
-// Splits at unquoted operators and into words, honouring quotes and backslashes.
-export const splitCommand = (command: string): string[][] => {
+// Heredoc bodies are text, not commands: drop them, and the `<<TAG` that opened them.
+const withoutHeredocs = (command: string): string => {
+  const kept: string[] = []
+  let closing: string | null = null
+  for (const line of command.split('\n')) {
+    if (closing !== null) {
+      if (line.trim() === closing) closing = null
+      continue
+    }
+    const opener = /<<-?\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1/.exec(line)
+    if (opener) closing = opener[2] ?? null
+    kept.push(opener ? line.replace(opener[0], '') : line)
+  }
+  return kept.join('\n')
+}
+
+// Splits at unquoted operators and into words, honouring quotes, backslashes,
+// comments and redirects. A parenthesis is its own one-word segment so a
+// subshell's `cd` can be told apart from the shell's.
+export const splitCommand = (raw: string): string[][] => {
+  const command = withoutHeredocs(raw.replace(/\\\n/g, ' '))
   const segments: string[][] = []
   let words: string[] = []
   let word = ''
   let hasWord = false
+  let isRedirect = false
+  let isDroppingNext = false
   let quote: '"' | "'" | null = null
   const endWord = () => {
-    if (hasWord) words.push(word)
+    if (hasWord) {
+      if (isDroppingNext) isDroppingNext = false
+      else if (isRedirect) isDroppingNext = /^\d*[<>&]+$/.test(word)
+      else words.push(word)
+    }
     word = ''
     hasWord = false
+    isRedirect = false
   }
   const endSegment = () => {
     endWord()
+    isDroppingNext = false
     if (words.length > 0) segments.push(words)
     words = []
   }
@@ -66,13 +94,24 @@ export const splitCommand = (command: string): string[][] => {
       word += command.charAt(++i)
       hasWord = true
     } else if (c === ' ' || c === '\t') endWord()
-    else {
+    else if (c === '#' && !hasWord) {
+      while (i + 1 < command.length && command.charAt(i + 1) !== '\n') i++
+    } else if (c === '>' || c === '<') {
+      word += c
+      hasWord = true
+      isRedirect = true
+    } else if (c === '&' && (isRedirect || command.charAt(i + 1) === '>')) {
+      word += c
+      hasWord = true
+      isRedirect = true
+    } else {
       const op = OPERATORS.find(o => command.startsWith(o, i))
       if (op === undefined) {
         word += c
         hasWord = true
       } else {
         endSegment()
+        if (SEPARATOR_MARKS.includes(op)) segments.push([op])
         i += op.length - 1
       }
     }
@@ -85,8 +124,13 @@ const IDENTITY_CONFIG = new Set(['user.name', 'user.email', 'author.name', 'auth
 const IDENTITY_ENV = new Set(['GIT_AUTHOR_NAME', 'GIT_AUTHOR_EMAIL', 'GIT_COMMITTER_NAME', 'GIT_COMMITTER_EMAIL'])
 const ASSIGNMENT = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/s
 const WITH_ARGUMENT = new Set(['--namespace', '--exec-path'])
+const PATH_OPTIONS = new Set(['--git-dir', '--work-tree'])
+const WRAPPERS = new Set(['command', 'time', 'nohup', 'exec', 'nice', 'sudo', 'builtin', '!', '{', '}'])
+const WRAPPER_VALUE_FLAGS = new Set(['-u', '-g', '-n', '-C', '-S'])
 
 export const COMMIT_COMMANDS = new Set(['commit', 'merge', 'rebase', 'cherry-pick', 'revert', 'am', 'pull'])
+// Flags that mean the command finishes, previews or abandons work rather than creating a commit.
+const NON_COMMITTING = new Set(['--abort', '--continue', '--quit', '--skip', '--dry-run', '--help', '-h', '--edit-todo', '--show-current-patch'])
 
 export type GitCall = {
   sub: string
@@ -101,6 +145,11 @@ export type GitCall = {
   identityPrefix: string[]
 }
 
+export const createsCommits = (call: GitCall): boolean =>
+  COMMIT_COMMANDS.has(call.sub) && !call.args.some(arg => NON_COMMITTING.has(arg))
+
+const isPlainPath = (path: string) => path !== '' && path !== '-' && !/[~$`*]/.test(path)
+
 export const identityOverrides = (call: GitCall): string[] => [
   ...call.configOverrides.map(kv => `-c ${kv}`),
   ...(call.authorOverride === null ? [] : [`--author=${call.authorOverride}`]),
@@ -108,15 +157,26 @@ export const identityOverrides = (call: GitCall): string[] => [
 ]
 
 // Every git invocation in the command, in order. Assignments on a line of their
-// own (or after `export`) carry forward to later lines, as the shell does.
+// own (or after `export`) carry forward to later lines, and a `cd` moves later
+// git commands into the folder it names (until the subshell it is in closes).
 export const gitCalls = (command: string): GitCall[] => {
   const calls: GitCall[] = []
   const carried: Record<string, string> = {}
+  let moved: string[] = []
+  const saved: string[][] = []
   for (const words of splitCommand(command)) {
+    if (words[0] === '(' && words.length === 1) {
+      saved.push(moved)
+      continue
+    }
+    if (words[0] === ')' && words.length === 1) {
+      moved = saved.pop() ?? moved
+      continue
+    }
     let i = 0
     const inline: Record<string, string> = {}
-    if (words[0] === 'export') i = 1
-    const isExport = i === 1
+    const isExport = words[0] === 'export'
+    if (isExport) i = 1
     for (; i < words.length; i++) {
       const assigned = ASSIGNMENT.exec(words[i] ?? '')
       if (assigned === null) break
@@ -126,27 +186,58 @@ export const gitCalls = (command: string): GitCall[] => {
       Object.assign(carried, inline)
       continue
     }
-    while (words[i] === 'env' || words[i] === 'command') i++
+    if (words[i] === 'cd') {
+      const target = words[i + 1] ?? ''
+      if (isPlainPath(target)) moved = [...moved, target]
+      continue
+    }
+    // Wrappers: env's assignments count, the rest only get out of the way.
+    for (;;) {
+      const word = words[i] ?? ''
+      if (word === 'env') {
+        i++
+        for (;;) {
+          const next = words[i] ?? ''
+          const assigned = ASSIGNMENT.exec(next)
+          if (assigned) inline[assigned[1] ?? ''] = assigned[2] ?? ''
+          else if (!next.startsWith('-') || next === '-') break
+          else if (WRAPPER_VALUE_FLAGS.has(next)) i++
+          i++
+        }
+      } else if (WRAPPERS.has(word)) {
+        i++
+        while ((words[i] ?? '').startsWith('-')) i += WRAPPER_VALUE_FLAGS.has(words[i] ?? '') ? 2 : 1
+      } else break
+    }
     const program = words[i] ?? ''
     if (program !== 'git' && !program.endsWith('/git')) continue
     i++
 
-    const prefix: string[] = []
+    const prefix: string[] = moved.flatMap(path => ['-C', path])
     const identityPrefix: string[] = []
     const configOverrides: string[] = []
     while (i < words.length && (words[i] ?? '').startsWith('-')) {
       const flag = words[i] ?? ''
-      if (flag === '-C' || flag === '-c') {
+      if (flag === '-C') {
+        prefix.push(flag, words[i + 1] ?? '')
+        i += 2
+      } else if (flag === '-c') {
         const value = words[i + 1] ?? ''
-        if (flag === '-C') prefix.push(flag, value)
-        else if (IDENTITY_CONFIG.has(value.slice(0, Math.max(value.indexOf('='), 0)).toLowerCase())) {
+        if (IDENTITY_CONFIG.has(value.slice(0, Math.max(value.indexOf('='), 0)).toLowerCase())) {
           configOverrides.push(value)
           identityPrefix.push(flag, value)
         } else prefix.push(flag, value)
         i += 2
+      } else if (PATH_OPTIONS.has(flag)) {
+        prefix.push(`${flag}=${words[i + 1] ?? ''}`)
+        i += 2
       } else if (WITH_ARGUMENT.has(flag)) i += 2
       else {
-        if (flag.startsWith('--git-dir=') || flag.startsWith('--work-tree=')) prefix.push(flag)
+        const configEnv = /^--config-env=([^=]*)=/.exec(flag)
+        if (configEnv && IDENTITY_CONFIG.has((configEnv[1] ?? '').toLowerCase())) {
+          configOverrides.push(flag.slice('--config-env='.length))
+          identityPrefix.push(flag)
+        } else if (flag.startsWith('--git-dir=') || flag.startsWith('--work-tree=')) prefix.push(flag)
         i += 1
       }
     }
@@ -173,22 +264,28 @@ const PUSH_VALUE_OPTIONS = new Set(['-o', '--push-option', '--repo', '--receive-
 // The refs a push sends, as git log can name them. null: nothing to check.
 export const pushedRefs = (args: readonly string[]): string[] | null => {
   const positional: string[] = []
-  let isAll = false
+  const refs = new Set<string>()
   for (let i = 0; i < args.length; i++) {
     const arg = args[i] ?? ''
-    if (arg === '--delete' || arg === '-d') return null
-    if (arg === '--all' || arg === '--mirror') isAll = true
-    else if (PUSH_VALUE_OPTIONS.has(arg)) i++
+    if (arg === '--delete' || arg === '-d' || arg === '--dry-run' || arg === '-n') return null
+    if (arg === '--mirror') refs.add('--all')
+    else if (arg === '--all') refs.add('--branches')
+    else if (arg === '--tags') refs.add('--tags')
+    else if (arg === '--follow-tags') {
+      refs.add('--tags')
+      refs.add('HEAD')
+    } else if (PUSH_VALUE_OPTIONS.has(arg)) i++
     else if (!arg.startsWith('-')) positional.push(arg)
   }
-  if (isAll) return ['--branches']
   const refspecs = positional.slice(1)
-  if (refspecs.length === 0) return ['HEAD']
-  const refs = refspecs.flatMap(spec => {
+  for (const spec of refspecs) {
     const src = spec.replace(/^\+/, '').split(':')[0] ?? ''
-    return src === '' || src.includes('*') || src === 'tag' ? [] : [src]
-  })
-  return refs.length > 0 ? refs : null
+    if (src.includes('*')) refs.add('--branches')
+    else if (src !== '' && src !== 'tag') refs.add(src)
+  }
+  if (refspecs.length === 0 && refs.size === 0) refs.add('HEAD')
+  if (refspecs.length === 0 && refs.has('--tags') && !args.includes('--follow-tags')) refs.delete('HEAD')
+  return refs.size > 0 ? [...refs] : null
 }
 
 // ---- wording ------------------------------------------------------------------
@@ -236,23 +333,32 @@ export const commitMessage = (args: {
   ].join('\n')
 }
 
-export type Unpushed = { sha: string; author: Ident; committer: Ident; isRoot: boolean }
+export type Unpushed = { sha: string; author: Ident; committer: Ident; parents: string[] }
+
+// The pushed commits the unpushed ones hang off. Rebasing onto one of them
+// touches nothing that a remote has; with none the history starts here (--root),
+// and with several no single rebase is safe.
+export const restampBase = (unpushed: readonly Unpushed[]): string | null => {
+  const here = new Set(unpushed.map(c => c.sha))
+  const bases = [...new Set(unpushed.flatMap(c => c.parents).filter(p => !here.has(p)))]
+  return bases.length === 0 ? '--root' : bases.length === 1 ? (bases[0] ?? null) : null
+}
 
 export const pushMessage = (args: {
+  unpushed: Unpushed[]
   bad: Unpushed[]
-  oldest: Unpushed
-  total: number
   allowList: readonly Ident[]
   isIdentityAllowed: boolean
   isGlobalAllowed: boolean
 }): string => {
-  const { bad, oldest, total, allowList, isIdentityAllowed, isGlobalAllowed } = args
-  const base = oldest.isRoot ? '--root' : `${oldest.sha}^`
-  const restamp = `git rebase --exec 'git commit --amend --no-edit --reset-author' ${base}`
-  const steps = [
-    ...(isIdentityAllowed ? [] : [`${capital(identityFix(isGlobalAllowed))}.`]),
-    `Re-stamp the ${total} unpushed commit${total === 1 ? '' : 's'} only: \`${restamp}\`. Commits already on a remote are never touched.`,
-  ]
+  const { unpushed, bad, allowList, isIdentityAllowed, isGlobalAllowed } = args
+  const base = restampBase(unpushed)
+  const total = unpushed.length
+  const restamp =
+    base === null
+      ? 'These unpushed commits include a merge of more than one line of history, so no single rebase is safe here. Ask Paddy how to re-stamp them, and do not touch any commit a remote already has.'
+      : `Re-stamp the ${total} unpushed commit${total === 1 ? '' : 's'} only: \`git rebase --exec 'git commit --amend --no-edit --reset-author' ${base}\`. Commits already on a remote are never touched.`
+  const steps = [...(isIdentityAllowed ? [] : [`${capital(identityFix(isGlobalAllowed))}.`]), restamp]
   return [
     `Blocked: ${bad.length} commit${bad.length === 1 ? '' : 's'} about to be pushed ${bad.length === 1 ? 'has' : 'have'} an identity that isn't on the allow-list (${showList(allowList)}):`,
     ...bad.map(c => `  ${c.sha}  author ${show(c.author)}, committer ${show(c.committer)}`),

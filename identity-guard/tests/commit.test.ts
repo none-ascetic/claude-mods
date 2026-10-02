@@ -168,3 +168,56 @@ test('words inside a commit message do not trigger the push check or overrides',
   expect(result.deny).toBeUndefined()
   expect(seen).toHaveLength(1)
 })
+
+for (const command of [
+  'env GIT_AUTHOR_EMAIL=paddy@dines.co.uk git commit -m x',
+  'env -u HOME GIT_COMMITTER_EMAIL=paddy@dines.co.uk git commit -m x',
+  'sudo git -c user.email=paddy@dines.co.uk commit -m x',
+  'time git -c user.email=paddy@dines.co.uk commit -m x',
+  'git -c user.email=paddy@dines.co.uk \\\n  commit -m x',
+  '(git -c user.email=paddy@dines.co.uk commit -m x)',
+  '{ git -c user.email=paddy@dines.co.uk commit -m x; }',
+  'git --git-dir /work/repo/.git -c user.email=paddy@dines.co.uk commit -m x',
+  "git commit -F - <<EOF\nDon't do that\nEOF\ngit -c user.email=paddy@dines.co.uk commit -m y",
+  'git commit -m x 2>&1 | tail -1 && git -c user.email=paddy@dines.co.uk commit -m y',
+]) {
+  test(`an override cannot hide behind a wrapper, a continuation or a shell form: ${command}`, async ($, on) => {
+    const { seen } = setup(on, { global: CLAUDE, repos: { [HOME]: repoWith({}) } })
+    expectBlocked(await bash($, command), seen)
+  })
+}
+
+test('cd before git is followed, so the repo it moved into is the one checked', async ($, on) => {
+  const { seen } = setup(on, { global: CLAUDE, repos: { [HOME]: repoWith({}), '/work/other': repoWith(WORK) } })
+  expectBlocked(await bash($, 'cd /work/other && git commit -m x'), seen)
+  expectBlocked(await bash($, '(cd /work/other && git commit -m x)'), seen)
+})
+
+test('a comment is not a command', async ($, on) => {
+  const { seen } = setup(on, { global: PADDY, repos: { [HOME]: repoWith(WORK) } })
+  await bash($, 'ls # git commit -m x')
+  expect(seen.lookups).toEqual([0])
+})
+
+for (const command of [
+  'git rebase --abort',
+  'git rebase --continue',
+  'git merge --abort',
+  'git cherry-pick --abort',
+  'git commit --dry-run',
+]) {
+  test(`commands that finish nothing are not blocked, whatever the identity: ${command}`, async ($, on) => {
+    const { seen } = setup(on, { global: PADDY, repos: { [HOME]: repoWith(WORK) } })
+    expect((await bash($, command)).deny).toBeUndefined()
+    expect(seen.lookups).toEqual([0])
+  })
+}
+
+test('--author with a pattern is resolved the way git does, from an existing author', async ($, on) => {
+  const { seen } = setup(on, { global: CLAUDE, repos: { [HOME]: { local: {}, authors: [CLAUDE, STRANGER] } } })
+  expect((await bash($, 'git commit --author=Claude -m x')).deny).toBeUndefined()
+  expect(seen).toHaveLength(1)
+  expect((await bash($, 'git commit --author=Someone -m x')).deny).toBeDefined()
+  expect((await bash($, 'git commit --author=Nobody -m x')).deny).toBeDefined()
+  expect(seen).toHaveLength(1)
+})

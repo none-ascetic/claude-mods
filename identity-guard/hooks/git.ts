@@ -23,7 +23,15 @@ export const commitIdentity = async (run: Run, call: GitCall): Promise<Found> =>
     identOf(run, prefix, call.envOverrides, 'AUTHOR'),
     identOf(run, prefix, call.envOverrides, 'COMMITTER'),
   ])
-  return { author: call.authorOverride === null ? author : parseIdent(call.authorOverride), committer }
+  if (call.authorOverride === null) return { author, committer }
+  return { author: parseIdent(call.authorOverride) ?? (await authorFromHistory(run, prefix, call.authorOverride)), committer }
+}
+
+// `--author=Claude` is a pattern: git takes the name and email of the first existing commit that matches it.
+const authorFromHistory = async (run: Run, prefix: readonly string[], pattern: string): Promise<Ident | null> => {
+  const done = await run(['git', ...prefix, 'log', '--all', '-i', '-1', `--author=${pattern}`, '--format=%an%x09%ae'])
+  const [name = '', email = ''] = done.stdout.trim().split('\t')
+  return done.exitCode === 0 && email !== '' ? { name, email } : null
 }
 
 // The identity git would use with every override in the command dropped.
@@ -56,6 +64,6 @@ export const unpushedCommits = async (run: Run, prefix: readonly string[], refs:
     .filter(line => line !== '')
     .map(line => {
       const [sha = '', an = '', ae = '', cn = '', ce = '', parents = ''] = line.split('\t')
-      return { sha, author: { name: an, email: ae }, committer: { name: cn, email: ce }, isRoot: parents.trim() === '' }
+      return { sha, author: { name: an, email: ae }, committer: { name: cn, email: ce }, parents: parents.split(' ').filter(p => p !== '') }
     })
 }

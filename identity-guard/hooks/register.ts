@@ -3,7 +3,7 @@ import type { Register } from 'claude-code'
 
 import { currentProblem, checkCommit, checkPush } from './checks'
 import type { Run } from './git'
-import { COMMIT_COMMANDS, gitCalls, parseAllowList } from './rules'
+import { createsCommits, gitCalls, parseAllowList } from './rules'
 
 const problem = atom({ plugin: 'identity-guard', key: 'problem' } as const, null)
 
@@ -31,7 +31,7 @@ export const register: Register = (on, options) => {
     const run: Run = (argv, init) => $.process.run(argv, init)
     const calls = gitCalls(e.command)
     for (const call of calls) {
-      const isCommit = COMMIT_COMMANDS.has(call.sub)
+      const isCommit = createsCommits(call)
       if (!isCommit && call.sub !== 'push') continue
       const block = await (isCommit ? checkCommit : checkPush)(run, call, allowList)
       if (block === null) continue

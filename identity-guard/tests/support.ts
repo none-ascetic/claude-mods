@@ -11,7 +11,7 @@ export type FakeCommit = {
   committer: Ident
   onRemote?: boolean
 }
-export type FakeRepo = { local?: Partial<Ident>; commits?: FakeCommit[] }
+export type FakeRepo = { local?: Partial<Ident>; commits?: FakeCommit[]; authors?: Ident[] }
 export type FakeWorld = {
   cwd?: string
   global?: Partial<Ident>
@@ -48,6 +48,7 @@ export const fakeGit = (on: any, world: FakeWorld) => {
     while (args[0]?.startsWith('-')) {
       const flag = args.shift()
       if (flag === '-C') dir = resolve(dir, args.shift() ?? '')
+      else if (flag?.startsWith('--git-dir=')) dir = flag.slice('--git-dir='.length).replace(/\/\.git$/, '')
       else if (flag === '-c') {
         const pair = args.shift() ?? ''
         const eq = pair.indexOf('=')
@@ -83,6 +84,11 @@ export const fakeGit = (on: any, world: FakeWorld) => {
     }
     if (sub === 'log') {
       if (!repo) return fail(128, 'fatal: not a git repository')
+      const pattern = args.find(a => a.startsWith('--author='))?.slice('--author='.length)
+      if (pattern !== undefined) {
+        const known = (repo.authors ?? []).find(a => a.name.toLowerCase().includes(pattern.toLowerCase()) || a.email.toLowerCase().includes(pattern.toLowerCase()))
+        return known ? ok(`${known.name}\t${known.email}\n`) : ok()
+      }
       if (!args.includes('--not') || !args.includes('--remotes')) {
         throw new Error(`fake git: log must be limited to commits not on a remote, got ${args.join(' ')}`)
       }

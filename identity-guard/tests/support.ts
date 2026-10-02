@@ -3,7 +3,9 @@
 // git: `var`, `config --global --get`, `rev-parse` and `log`. Anything else it is
 // asked is a mistake in the mod, so it throws and the test fails loudly.
 
-export type Ident = { name: string; email: string }
+import type { Ident } from '../hooks/rules'
+
+export type { Ident }
 export type FakeCommit = {
   sha: string
   parents?: string[]
@@ -108,7 +110,7 @@ export const fakeGit = (on: any, world: FakeWorld) => {
 // What arrives beneath the plugin: records each tool call and lets it through.
 // `lookups` counts the git calls already made when each tool call arrived, so a
 // test can tell the guard's checks apart from the band refreshing afterwards.
-export const toolBeneath = (on: any, calls: string[][] = []) => {
+export const toolBeneath = (on: any, calls: string[][]) => {
   const seen: any[] & { lookups: number[] } = Object.assign([] as any[], { lookups: [] as number[] })
   on('tool.call', (_$: any, e: any) => {
     seen.push(e)
@@ -116,6 +118,15 @@ export const toolBeneath = (on: any, calls: string[][] = []) => {
     return { result: {}, text: 'ok' }
   })
   return seen
+}
+
+export const setup = (on: any, world: FakeWorld) => {
+  const git = fakeGit(on, world)
+  return { ...git, seen: toolBeneath(on, git.calls) }
+}
+
+export const expectNoForbidden = (text: string, expect: (v: string) => { not: { toMatch: (w: RegExp) => void } }) => {
+  for (const word of FORBIDDEN) expect(text).not.toMatch(word)
 }
 
 export const bash = ($: any, command: string) => $.tool.call({ tool: 'Bash', command })

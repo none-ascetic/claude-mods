@@ -1,17 +1,12 @@
 import { test, expect } from 'claude-code/testing'
-import { CLAUDE, FORBIDDEN, HOME, PADDY, STRANGER, WORK, bash, fakeGit, repoWith, toolBeneath } from './support'
+import { CLAUDE, expectNoForbidden, HOME, PADDY, STRANGER, WORK, bash, repoWith, setup } from './support'
 
 const ALLOW_LIST = 'Paddy Davies <paddy.davies@me.com>, Claude <noreply@anthropic.com>'
-
-const setup = (on: any, world: Parameters<typeof fakeGit>[1]) => {
-  const git = fakeGit(on, world)
-  return { ...git, seen: toolBeneath(on, git.calls) }
-}
 
 const expectBlocked = (result: any, seen: any[]) => {
   expect(result.deny).toBeDefined()
   expect(seen).toHaveLength(0)
-  for (const word of FORBIDDEN) expect(result.deny).not.toMatch(word)
+  expectNoForbidden(result.deny, expect as any)
 }
 
 test('a commit as Paddy is allowed, email in any case', async ($, on) => {

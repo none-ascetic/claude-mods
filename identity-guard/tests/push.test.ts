@@ -1,10 +1,6 @@
 import { test, expect } from 'claude-code/testing'
-import { CLAUDE, FORBIDDEN, HOME, PADDY, STRANGER, WORK, bash, commit, fakeGit, repoWith, toolBeneath } from './support'
-
-const setup = (on: any, world: Parameters<typeof fakeGit>[1]) => {
-  const git = fakeGit(on, world)
-  return { ...git, seen: toolBeneath(on, git.calls) }
-}
+import { CLAUDE, expectNoForbidden, HOME, PADDY, STRANGER, WORK, bash, commit, repoWith, setup } from './support'
+import type { FakeWorld } from './support'
 
 test('a push carrying an unpushed work-email commit is blocked and lists its short SHA', async ($, on) => {
   const { seen } = setup(on, {
@@ -37,7 +33,7 @@ test('the push fix re-stamps only the unpushed commits and never forces anything
   })
   const result = await bash($, 'git push')
   expect(result.deny).toContain("git rebase --exec 'git commit --amend --no-edit --reset-author' aaaaaaa")
-  for (const word of FORBIDDEN) expect(result.deny).not.toMatch(word)
+  expectNoForbidden(result.deny, expect as any)
 })
 
 test('the push fix also corrects the identity first, by the same rule as a commit', async ($, on) => {
@@ -79,7 +75,7 @@ test('when unpushed work hangs off two different pushed commits no single re-sta
   expect(result.deny).toContain('3333333')
   expect(result.deny).not.toContain('git rebase')
   expect(result.deny).toMatch(/merge/i)
-  for (const word of FORBIDDEN) expect(result.deny).not.toMatch(word)
+  expectNoForbidden(result.deny, expect as any)
 })
 
 test('a first commit with no parent is re-stamped with --root', async ($, on) => {
@@ -139,7 +135,7 @@ test('git -C points the push check at the right repo', async ($, on) => {
   expect(seen).toHaveLength(0)
 })
 
-const OFF = (): Parameters<typeof fakeGit>[1] => ({ global: CLAUDE, repos: { [HOME]: repoWith({}, [commit('1111111aaaaaaa', WORK)]) } })
+const OFF = (): FakeWorld => ({ global: CLAUDE, repos: { [HOME]: repoWith({}, [commit('1111111aaaaaaa', WORK)]) } })
 
 for (const command of [
   'git push origin main 2>&1',

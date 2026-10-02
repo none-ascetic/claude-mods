@@ -4,7 +4,7 @@
 
 export type Ident = { name: string; email: string }
 
-export const DEFAULT_ALLOW_LIST = ['Paddy Davies <paddy.davies@me.com>', 'Claude <noreply@anthropic.com>']
+const DEFAULT_ALLOW_LIST = ['Paddy Davies <paddy.davies@me.com>', 'Claude <noreply@anthropic.com>']
 
 const IDENT = /^\s*(.*?)\s*<([^<>]*)>\s*$/
 
@@ -28,7 +28,7 @@ export const isAllowed = (ident: Ident | null, allowList: readonly Ident[]): boo
 
 export const show = (ident: Ident | null): string => (ident === null ? 'no identity set' : `${ident.name} <${ident.email}>`)
 
-export const showList = (allowList: readonly Ident[]): string => allowList.map(show).join(', ')
+const showList = (allowList: readonly Ident[]): string => allowList.map(show).join(', ')
 
 // ---- reading a shell command -------------------------------------------------
 
@@ -54,7 +54,7 @@ const withoutHeredocs = (command: string): string => {
 // Splits at unquoted operators and into words, honouring quotes, backslashes,
 // comments and redirects. A parenthesis is its own one-word segment so a
 // subshell's `cd` can be told apart from the shell's.
-export const splitCommand = (raw: string): string[][] => {
+const splitCommand = (raw: string): string[][] => {
   const command = withoutHeredocs(raw.replace(/\\\n/g, ' '))
   const segments: string[][] = []
   let words: string[] = []
@@ -128,7 +128,7 @@ const PATH_OPTIONS = new Set(['--git-dir', '--work-tree'])
 const WRAPPERS = new Set(['command', 'time', 'nohup', 'exec', 'nice', 'sudo', 'builtin', '!', '{', '}'])
 const WRAPPER_VALUE_FLAGS = new Set(['-u', '-g', '-n', '-C', '-S'])
 
-export const COMMIT_COMMANDS = new Set(['commit', 'merge', 'rebase', 'cherry-pick', 'revert', 'am', 'pull'])
+const COMMIT_COMMANDS = new Set(['commit', 'merge', 'rebase', 'cherry-pick', 'revert', 'am', 'pull'])
 // Flags that mean the command finishes, previews or abandons work rather than creating a commit.
 const NON_COMMITTING = new Set(['--abort', '--continue', '--quit', '--skip', '--dry-run', '--help', '-h', '--edit-todo', '--show-current-patch'])
 
@@ -304,13 +304,13 @@ export const offences = (found: Found, allowList: readonly Ident[]): string[] =>
   ]
 }
 
-export const SET_PADDY = 'git config user.name "Paddy Davies" && git config user.email paddy.davies@me.com'
-export const UNSET_LOCAL = 'git config --unset user.name; git config --unset user.email'
+const SET_PADDY = 'git config user.name "Paddy Davies" && git config user.email paddy.davies@me.com'
+const UNSET_LOCAL = 'git config --unset user.name; git config --unset user.email'
 
 // How to make this repo's own identity right. Where the global identity is on
 // the list the repo falls back to it (Claude in the cloud, Paddy on the laptop),
 // so the fix never moves anyone off the identity their setup requires.
-export const identityFix = (isGlobalAllowed: boolean): string =>
+const identityFix = (isGlobalAllowed: boolean): string =>
   isGlobalAllowed
     ? `remove this repo's override: \`${UNSET_LOCAL}\``
     : `set this repo to Paddy: \`${SET_PADDY}\``
@@ -338,7 +338,7 @@ export type Unpushed = { sha: string; author: Ident; committer: Ident; parents: 
 // The pushed commits the unpushed ones hang off. Rebasing onto one of them
 // touches nothing that a remote has; with none the history starts here (--root),
 // and with several no single rebase is safe.
-export const restampBase = (unpushed: readonly Unpushed[]): string | null => {
+const restampBase = (unpushed: readonly Unpushed[]): string | null => {
   const here = new Set(unpushed.map(c => c.sha))
   const bases = [...new Set(unpushed.flatMap(c => c.parents).filter(p => !here.has(p)))]
   return bases.length === 0 ? '--root' : bases.length === 1 ? (bases[0] ?? null) : null

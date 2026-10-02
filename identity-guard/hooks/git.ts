@@ -19,12 +19,14 @@ const identOf = async (run: Run, prefix: readonly string[], env: Record<string, 
 // The identity git would use for this command: its own config plus what the command overrides.
 export const commitIdentity = async (run: Run, call: GitCall): Promise<Found> => {
   const prefix = [...call.prefix, ...call.identityPrefix]
+  const override = call.authorOverride
   const [author, committer] = await Promise.all([
-    identOf(run, prefix, call.envOverrides, 'AUTHOR'),
+    override === null
+      ? identOf(run, prefix, call.envOverrides, 'AUTHOR')
+      : (parseIdent(override) ?? authorFromHistory(run, prefix, override)),
     identOf(run, prefix, call.envOverrides, 'COMMITTER'),
   ])
-  if (call.authorOverride === null) return { author, committer }
-  return { author: parseIdent(call.authorOverride) ?? (await authorFromHistory(run, prefix, call.authorOverride)), committer }
+  return { author, committer }
 }
 
 // `--author=Claude` is a pattern: git takes the name and email of the first existing commit that matches it.
@@ -50,6 +52,14 @@ export const isGlobalAllowed = async (run: Run, allowList: readonly Ident[]): Pr
   ])
   if (name.exitCode !== 0 || email.exitCode !== 0) return false
   return isAllowed({ name: name.stdout.trim(), email: email.stdout.trim() }, allowList)
+}
+
+// What the fix advice depends on: whether the repo's own identity (without any
+// override in the command) is fine, and whether the global one it falls back to is.
+export const fixFacts = async (run: Run, prefix: readonly string[], allowList: readonly Ident[], known?: Found) => {
+  const [baseline, isGlobalOk] = await Promise.all([known ?? baselineIdentity(run, prefix), isGlobalAllowed(run, allowList)])
+  const isBaselineAllowed = isIdentityAllowed(baseline, allowList)
+  return { isBaselineAllowed, isGlobalAllowed: isBaselineAllowed || isGlobalOk }
 }
 
 export const isInsideRepo = async (run: Run): Promise<boolean> =>

@@ -1,5 +1,5 @@
 import { test, expect } from 'claude-code/testing'
-import { CLAUDE, HOME, PADDY, WORK, bash, fakeGit, repoWith, toolBeneath } from './support'
+import { CLAUDE, HOME, PADDY, WORK, bash, fakeGit, repoWith, setup } from './support'
 import type { FakeWorld } from './support'
 
 const SURFACES = ['terminal', 'desktop'] as const
@@ -42,8 +42,7 @@ for (const surface of SURFACES) {
 
 test('the band refreshes after a git-touching Bash call', async ($, on) => {
   const world: FakeWorld = { global: CLAUDE, repos: { [HOME]: repoWith(PADDY) } }
-  fakeGit(on, world)
-  toolBeneath(on)
+  setup(on, world)
   await start($, on)('terminal')
   expect(await drawn($, 'terminal')).toBeUndefined()
   world.repos[HOME] = repoWith(WORK)
@@ -65,16 +64,14 @@ test('the band refreshes when a turn completes', async ($, on) => {
 })
 
 test('a blocked commit shows a toast', async ($, on) => {
-  const { toasts } = fakeGit(on, { global: CLAUDE, repos: { [HOME]: repoWith(WORK) } })
-  toolBeneath(on)
+  const { toasts } = setup(on, { global: CLAUDE, repos: { [HOME]: repoWith(WORK) } })
   await bash($, 'git commit -m x')
   expect(toasts).toHaveLength(1)
   expect(toasts[0]).toContain('paddy@dines.co.uk')
 })
 
 test('a commit that goes through shows nothing', async ($, on) => {
-  const { toasts } = fakeGit(on, { global: CLAUDE, repos: { [HOME]: repoWith(PADDY) } })
-  toolBeneath(on)
+  const { toasts } = setup(on, { global: CLAUDE, repos: { [HOME]: repoWith(PADDY) } })
   await bash($, 'git commit -m x')
   expect(toasts).toHaveLength(0)
 })

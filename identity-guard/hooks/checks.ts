@@ -3,7 +3,7 @@ import {
   type Run,
   baselineIdentity,
   commitIdentity,
-  isGlobalAllowed,
+  fixFacts,
   isIdentityAllowed,
   isInsideRepo,
   unpushedCommits,
@@ -17,11 +17,9 @@ export const checkCommit = async (run: Run, call: GitCall, allowList: readonly I
   if (isIdentityAllowed(found, allowList)) return null
 
   const overrides = identityOverrides(call)
-  const baseline = overrides.length > 0 ? await baselineIdentity(run, call.prefix) : found
-  const isBaselineAllowed = isIdentityAllowed(baseline, allowList)
-  const isGlobalOk = isBaselineAllowed || (await isGlobalAllowed(run, allowList))
+  const facts = await fixFacts(run, call.prefix, allowList, overrides.length > 0 ? undefined : found)
   return {
-    deny: commitMessage({ found, allowList, overrides, isBaselineAllowed, isGlobalAllowed: isGlobalOk }),
+    deny: commitMessage({ found, allowList, overrides, ...facts }),
     toast: `Identity guard: commit blocked, ${offences(found, allowList)[0]} is not on the allow-list`,
   }
 }
@@ -33,18 +31,16 @@ export const checkPush = async (run: Run, call: GitCall, allowList: readonly Ide
   const bad = unpushed.filter(c => !isAllowed(c.author, allowList) || !isAllowed(c.committer, allowList))
   if (bad.length === 0) return null
 
-  const current = await baselineIdentity(run, call.prefix)
-  const isCurrentAllowed = isIdentityAllowed(current, allowList)
-  const isGlobalOk = isCurrentAllowed || (await isGlobalAllowed(run, allowList))
+  const { isBaselineAllowed, isGlobalAllowed } = await fixFacts(run, call.prefix, allowList)
   return {
-    deny: pushMessage({ unpushed, bad, allowList, isIdentityAllowed: isCurrentAllowed, isGlobalAllowed: isGlobalOk }),
+    deny: pushMessage({ unpushed, bad, allowList, isIdentityAllowed: isBaselineAllowed, isGlobalAllowed }),
     toast: `Identity guard: push blocked, ${bad.length} unpushed commit${bad.length === 1 ? '' : 's'} off the allow-list`,
   }
 }
 
 // One line for the band, or null when all is well or this is not a repo.
 export const currentProblem = async (run: Run, allowList: readonly Ident[]): Promise<string | null> => {
-  if (!(await isInsideRepo(run))) return null
-  const found = await baselineIdentity(run, [])
+  const [isRepo, found] = await Promise.all([isInsideRepo(run), baselineIdentity(run, [])])
+  if (!isRepo) return null
   return isIdentityAllowed(found, allowList) ? null : `✗ Git identity is not on the allow-list: ${offences(found, allowList).join(' and ')}`
 }

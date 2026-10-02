@@ -166,3 +166,36 @@ test('Write of several dashes counts them all', async ($, on) => {
   expect(denial(r)).toContain('line 1')
   expect(denial(r)).toContain('line 2')
 })
+
+test('a double-star glob also matches a file at the top level', { options: { exemptPaths: ['**/*.md'] } }, async ($, on) => {
+  const ran = world(on, undefined)
+  await $.tool.call({ tool: 'Write', file_path: 'a.md', content: `x ${EM} y\n` })
+  await $.tool.call({ tool: 'Write', file_path: '/repo/docs/deep/b.md', content: `x ${EM} y\n` })
+  expect(ran.length).toBe(2)
+})
+
+const notebook = (source: string) =>
+  JSON.stringify({ cells: [{ id: 'c1', cell_type: 'markdown', source: [source] }] })
+
+test('NotebookEdit keeping a dash the cell already had goes through', async ($, on) => {
+  const ran = world(on, notebook(`Notes ${EM} draft`))
+  await $.tool.call({
+    tool: 'NotebookEdit',
+    notebook_path: '/repo/n.ipynb',
+    cell_id: 'c1',
+    new_source: `Notes ${EM} draft, extended`,
+  })
+  expect(ran.length).toBe(1)
+})
+
+test('NotebookEdit adding a second dash to a cell is blocked', async ($, on) => {
+  const ran = world(on, notebook(`Notes ${EM} draft`))
+  const r: any = await $.tool.call({
+    tool: 'NotebookEdit',
+    notebook_path: '/repo/n.ipynb',
+    cell_id: 'c1',
+    new_source: `Notes ${EM} draft ${EM} more`,
+  })
+  expect(denial(r)).toBeDefined()
+  expect(ran.length).toBe(0)
+})

@@ -82,3 +82,17 @@ test('a dash at the start of a line keeps its indentation', async ($, on) => {
 test('an en dash with space on one side only is left alone', async ($, on) => {
   expect(await shown($, on, [`a ${EN}b and c${EN} d`])).toBe(`a ${EN}b and c${EN} d`)
 })
+
+test('a four-backtick fence holding a three-backtick line stays protected', async ($, on) => {
+  const text = `\`\`\`\`\n\`\`\`\ncode ${EM} here\n\`\`\`\`\nafter ${EM} fence`
+  expect(await shown($, on, [text])).toBe(`\`\`\`\`\n\`\`\`\ncode ${EM} here\n\`\`\`\`\nafter - fence`)
+})
+
+test('a tilde fence is not closed by backticks', async ($, on) => {
+  const text = `~~~\n\`\`\`\ncode ${EM} here\n~~~\nafter ${EM} fence`
+  expect(await shown($, on, [text])).toBe(`~~~\n\`\`\`\ncode ${EM} here\n~~~\nafter - fence`)
+})
+
+test('a spaced en dash at the end of a line is swapped', async ($, on) => {
+  expect(await shown($, on, [`first ${EN}\nsecond`])).toBe('first -\nsecond')
+})

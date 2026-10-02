@@ -4,6 +4,12 @@
 const EM = '\u2014'
 const EN = '\u2013'
 
+type Fence = { char: string; length: number }
+
+/** The fence a run of backticks or tildes makes: three or more, else none. */
+const fenceMarker = (run: string): Fence | null =>
+  run.length >= 3 ? { char: run.charAt(0), length: run.length } : null
+
 const isBlank = (c: string) => c !== '\n' && c !== '\r' && /\s/.test(c)
 
 /**
@@ -17,9 +23,10 @@ const isBlank = (c: string) => c !== '\n' && c !== '\r' && /\s/.test(c)
  * dash follows; `flush()` releases whatever is held.
  */
 export class DashSwapper {
-  private inFence = false
+  private fence: Fence | null = null
   private fenceLine = false
-  private lineHead = ''
+  private run = ''
+  private runOpen = true
   private lineHasContent = false
   private pendingWs = ''
   private pendingEn = false
@@ -43,10 +50,14 @@ export class DashSwapper {
 
   private step(c: string): string {
     if (c === '\n' || c === '\r') {
-      const out = this.flush() + c
+      const wasSpaced = this.pendingEn && this.pendingWs !== ''
+      if (wasSpaced) this.pendingEn = false
+      const out = (wasSpaced ? this.emitDash() : '') + this.flush() + c
       if (c === '\n') {
-        this.lineHead = ''
+        this.endOfLine()
         this.fenceLine = false
+        this.run = ''
+        this.runOpen = true
         this.lineHasContent = false
       }
       return out
@@ -68,7 +79,7 @@ export class DashSwapper {
       this.pendingEn = false
       this.noteChar(EN)
     }
-    const canSwap = !this.respectFences || (!this.inFence && !this.fenceLine)
+    const canSwap = !this.respectFences || (this.fence === null && !this.fenceLine)
     if (c === EM && canSwap) {
       return this.afterDash ? out : out + this.emitDash()
     }
@@ -97,12 +108,30 @@ export class DashSwapper {
     return `${lead}-`
   }
 
+  // A fence line starts with a run of three or more backticks or tildes. The
+  // run is known only once it ends, so the line's dashes (after the run) are
+  // judged then. A fence closes on a run of the same character, at least as
+  // long as the opening one.
   private noteChar(c: string) {
     this.lineHasContent = true
-    if (this.lineHead.length >= 3) return
-    this.lineHead += c
-    if (this.lineHead.length === 3 && /^(`{3}|~{3})$/.test(this.lineHead)) {
-      this.inFence = !this.inFence
+    if (!this.runOpen) return
+    if ((c === '`' || c === '~') && (this.run === '' || this.run.startsWith(c))) {
+      this.run += c
+      return
+    }
+    this.endOfLine()
+  }
+
+  private endOfLine() {
+    if (!this.runOpen) return
+    this.runOpen = false
+    const marker = fenceMarker(this.run)
+    if (marker === null) return
+    if (this.fence === null) {
+      this.fence = marker
+      this.fenceLine = true
+    } else if (marker.char === this.fence.char && marker.length >= this.fence.length) {
+      this.fence = null
       this.fenceLine = true
     }
   }
@@ -174,14 +203,15 @@ export const repunctuateMessage = (count: number, lines: readonly DashLine[]) =>
   )
 }
 
-const globToRegExp = (glob: string, anchored: boolean) => {
+const globToRegExp = (glob: string, isSingleSegment: boolean) => {
   let re = ''
   for (let i = 0; i < glob.length; i++) {
     const c = glob.charAt(i)
     if (c === '*' && glob.charAt(i + 1) === '*') {
-      re += '.*'
-      i++
-    } else if (c === '*') re += anchored ? '[^/]*' : '.*'
+      const isDirs = glob.charAt(i + 2) === '/'
+      re += isDirs ? '(?:.*/)?' : '.*'
+      i += isDirs ? 2 : 1
+    } else if (c === '*') re += isSingleSegment ? '[^/]*' : '.*'
     else if (c === '?') re += '[^/]'
     else re += c.replace(/[.+^${}()|[\]\\]/g, '\\$&')
   }
@@ -203,6 +233,8 @@ export const DEFAULT_OUTBOUND_TOOLS: readonly string[] = [
   'mcp__*__send_message',
   'mcp__*__reply',
   'mcp__*__forward',
+  'mcp__*__reply_to_message',
+  'mcp__*__forward_message',
   // Slack
   'mcp__*__slack_send_message',
   'mcp__*__slack_send_message_draft',
@@ -222,10 +254,14 @@ export const DEFAULT_OUTBOUND_TOOLS: readonly string[] = [
   'mcp__*__replyToThread',
   'mcp__*__createNote',
   'mcp__*__addGeneratedReply',
+  'mcp__*__createThread',
   // ClickUp
   'mcp__*__clickup_create_comment',
   'mcp__*__clickup_create_task_comment',
   'mcp__*__clickup_update_comment',
+  'mcp__*__clickup_send_chat_message',
+  'mcp__*__clickup_create_task',
+  'mcp__*__clickup_update_task',
 ]
 
 export const outboundMatcher = (patterns: readonly string[]): RegExp =>
@@ -235,16 +271,33 @@ export const outboundMatcher = (patterns: readonly string[]): RegExp =>
 
 /** Words of prose: fenced code blocks and table rows do not count. */
 export const proseWords = (text: string): number => {
-  let inFence = false
+  let fence: Fence | null = null
   let words = 0
   for (const line of text.split('\n')) {
     const t = line.trim()
-    if (/^(```|~~~)/.test(t)) {
-      inFence = !inFence
+    const marker = fenceMarker(/^(`+|~+)/.exec(t)?.[0] ?? '')
+    if (marker !== null) {
+      if (fence === null) fence = marker
+      else if (marker.char === fence.char && marker.length >= fence.length) fence = null
       continue
     }
-    if (inFence || t.startsWith('|')) continue
+    if (fence !== null || t.startsWith('|')) continue
     words += t.split(/\s+/).filter(Boolean).length
   }
   return words
+}
+
+/**
+ * The source of one notebook cell, so an edit can be compared with what the
+ * cell held before. Anything unreadable counts as an empty cell.
+ */
+export const notebookCellSource = (notebookJson: string, cellId: string | undefined): string => {
+  try {
+    const cells: unknown = JSON.parse(notebookJson)?.cells
+    if (!Array.isArray(cells) || cellId === undefined) return ''
+    const source: unknown = cells.find(c => c?.id === cellId)?.source
+    return Array.isArray(source) ? source.join('') : typeof source === 'string' ? source : ''
+  } catch {
+    return ''
+  }
 }

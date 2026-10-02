@@ -4,6 +4,7 @@ import {
   DashSwapper,
   addedDashes,
   isExemptPath,
+  notebookCellSource,
   outboundMatcher,
   proseWords,
   repunctuateMessage,
@@ -26,7 +27,7 @@ export const register: Register = (on, options) => {
   // Chat: swap dashes in the reply as it streams, so Paddy never sees one.
   on('turn.step', async function* ($, e, next) {
     const swappers = new Map<number, DashSwapper>()
-    const held = function* () {
+    const flushHeld = function* () {
       for (const [index, swapper] of swappers) {
         const text = swapper.flush()
         if (text !== '') yield { kind: 'text' as const, index, text }
@@ -36,13 +37,13 @@ export const register: Register = (on, options) => {
     for (;;) {
       const step = await stream.next()
       if (step.done) {
-        yield* held()
+        yield* flushHeld()
         const result = step.value
         return result && { ...result, answer: swapDashes(result.answer, true) }
       }
       const chunk = step.value
       if (chunk.kind !== 'text') {
-        yield* held()
+        yield* flushHeld()
         yield chunk
         continue
       }
@@ -81,9 +82,17 @@ export const register: Register = (on, options) => {
     const firstLine = at < 0 ? 1 : file.slice(0, at).split('\n').length
     return guard(e.file_path, e.old_string, e.new_string, firstLine) ?? next(e)
   })
-  on('tool.call', { tool: 'NotebookEdit' }, ($, e, next) =>
-    e.edit_mode === 'delete' ? next(e) : (guard(e.notebook_path, '', e.new_source) ?? next(e)),
-  )
+  on('tool.call', { tool: 'NotebookEdit' }, async ($, e, next) => {
+    if (e.edit_mode === 'delete') return next(e)
+    let notebook = ''
+    try {
+      notebook = await $.fs.read(e.notebook_path)
+    } catch {
+      // No notebook to compare with: the whole cell counts as new.
+    }
+    const before = e.edit_mode === 'insert' ? '' : notebookCellSource(notebook, e.cell_id)
+    return guard(e.notebook_path, before, e.new_source) ?? next(e)
+  })
 
   // Outbound: swap dashes in every text field before the call goes out.
   const RESERVED = new Set(['tool', 'tool_use_id', 'agentId'])

@@ -80,3 +80,19 @@ test('custom outboundTools replaces the list', { options: { outboundTools: ['mcp
   expect(seen[0].text).toBe('a - b')
   expect(seen[1].body).toBe(`a ${EM} b`)
 })
+
+test('other messages Paddy sends are swapped too: AgentMail, ClickUp chat and tasks, Plain threads', async ($, on) => {
+  const seen = world(on)
+  const tools: `mcp__${string}__${string}`[] = [
+    'mcp__x__reply_to_message',
+    'mcp__x__forward_message',
+    'mcp__x__clickup_send_chat_message',
+    'mcp__x__clickup_create_task',
+    'mcp__x__clickup_update_task',
+    'mcp__x__createThread',
+  ]
+  for (const tool of tools) {
+    await $.tool.call({ tool, text: `a ${EM} b` })
+  }
+  expect(seen.map((e: any) => e.text)).toEqual(Array(6).fill('a - b'))
+})

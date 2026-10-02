@@ -96,3 +96,9 @@ test('subagent turns are not nudged', async ($, on) => {
   })
   expect((await nudges($)).length).toBe(0)
 })
+
+test('a four-backtick fence holding a three-backtick line is still code', async ($, on) => {
+  world(on)
+  await finish($, `\`\`\`\`\n\`\`\`\n${words(600)}\n\`\`\`\`\nDone.`)
+  expect((await nudges($)).length).toBe(0)
+})

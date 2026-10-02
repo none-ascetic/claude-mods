@@ -65,26 +65,16 @@ test('the band refreshes when a turn completes', async ($, on) => {
 })
 
 test('a blocked commit shows a toast', async ($, on) => {
-  fakeGit(on, { global: CLAUDE, repos: { [HOME]: repoWith(WORK) } })
+  const { toasts } = fakeGit(on, { global: CLAUDE, repos: { [HOME]: repoWith(WORK) } })
   toolBeneath(on)
-  const toasts: string[] = []
-  on('ui.toast', (_$: any, e: any) => {
-    toasts.push(e.text)
-    return undefined as never
-  })
   await bash($, 'git commit -m x')
   expect(toasts).toHaveLength(1)
   expect(toasts[0]).toContain('paddy@dines.co.uk')
 })
 
 test('a commit that goes through shows nothing', async ($, on) => {
-  fakeGit(on, { global: CLAUDE, repos: { [HOME]: repoWith(PADDY) } })
+  const { toasts } = fakeGit(on, { global: CLAUDE, repos: { [HOME]: repoWith(PADDY) } })
   toolBeneath(on)
-  const toasts: string[] = []
-  on('ui.toast', (_$: any, e: any) => {
-    toasts.push(e.text)
-    return undefined as never
-  })
   await bash($, 'git commit -m x')
   expect(toasts).toHaveLength(0)
 })

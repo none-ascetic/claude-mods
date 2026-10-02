@@ -1,11 +1,18 @@
 {
   "name": "claude-mods",
-  "owner": { "name": "none-ascetic" },
+  "owner": {
+    "name": "none-ascetic"
+  },
   "plugins": [
     {
       "name": "house-rules",
       "source": "./house-rules",
       "description": "Quietly enforces Paddy's writing rules: no em dashes in chat, files or outbound messages, and a nudge when replies run long."
+    },
+    {
+      "name": "identity-guard",
+      "source": "./identity-guard",
+      "description": "Stops commits and pushes under the wrong git identity (the work email) before they reach GitHub, and says exactly how to fix it."
     }
   ]
 }

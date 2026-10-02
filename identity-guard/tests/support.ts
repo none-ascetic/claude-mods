@@ -29,6 +29,12 @@ const resolve = (from: string, to: string) => (to.startsWith('/') ? to : `${from
 
 export const fakeGit = (on: any, world: FakeWorld) => {
   const calls: string[][] = []
+  const toasts: string[] = []
+
+  on('ui.toast', (_$: any, e: any) => {
+    toasts.push(e.text)
+    return { value: undefined }
+  })
 
   on('process.run', (_$: any, e: any) => {
     const argv: string[] = [...e.argv]
@@ -49,8 +55,8 @@ export const fakeGit = (on: any, world: FakeWorld) => {
       } else throw new Error(`fake git: unexpected option ${flag}`)
     }
     const repo = world.repos[dir]
-    const ok = (stdout = '') => ({ exitCode: 0, stdout, stderr: '' })
-    const fail = (exitCode: number, stderr = '') => ({ exitCode, stdout: '', stderr })
+    const ok = (stdout = '') => ({ value: { exitCode: 0, stdout, stderr: '' } })
+    const fail = (exitCode: number, stderr = '') => ({ value: { exitCode, stdout: '', stderr } })
 
     const sub = args.shift()
     if (sub === 'var') {
@@ -62,7 +68,7 @@ export const fakeGit = (on: any, world: FakeWorld) => {
         env[`GIT_${upper}_NAME`] ?? configured[`${role}.name`] ?? configured['user.name'] ?? repo?.local?.name ?? world.global?.name
       const email =
         env[`GIT_${upper}_EMAIL`] ?? configured[`${role}.email`] ?? configured['user.email'] ?? repo?.local?.email ?? world.global?.email
-      if (!name || !email) return fail(128, 'fatal: unable to auto-detect email address')
+      if (name === undefined || email === undefined) return fail(128, 'fatal: unable to auto-detect email address')
       return ok(`${name} <${email}> 1790974179 +0000\n`)
     }
     if (sub === 'config') {
@@ -90,14 +96,17 @@ export const fakeGit = (on: any, world: FakeWorld) => {
     throw new Error(`fake git: unexpected command ${argv.join(' ')}`)
   })
 
-  return { calls }
+  return { calls, toasts }
 }
 
 // What arrives beneath the plugin: records each tool call and lets it through.
-export const toolBeneath = (on: any) => {
-  const seen: any[] = []
+// `lookups` counts the git calls already made when each tool call arrived, so a
+// test can tell the guard's checks apart from the band refreshing afterwards.
+export const toolBeneath = (on: any, calls: string[][] = []) => {
+  const seen: any[] & { lookups: number[] } = Object.assign([] as any[], { lookups: [] as number[] })
   on('tool.call', (_$: any, e: any) => {
     seen.push(e)
+    seen.lookups.push(calls.length)
     return { result: {}, text: 'ok' }
   })
   return seen
